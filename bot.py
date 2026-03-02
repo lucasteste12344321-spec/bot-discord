@@ -3,8 +3,9 @@ from discord.ext import commands
 from discord import ui
 import sqlite3
 import random
+import os
 
-TOKEN = "MTQ3ODA2Nzc1NDYyMjc3OTU1NQ.Gaz8FO.9YR1n0POznEini3_LHBjfcvPZkH_dihsLmHdlM"
+TOKEN = os.getenv("TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -53,14 +54,21 @@ class ViewTorneio(ui.View):
                 ephemeral=True
             )
 
-        cursor.execute("SELECT user_id FROM participantes WHERE user_id = ?", (interaction.user.id,))
+        cursor.execute(
+            "SELECT user_id FROM participantes WHERE user_id = ?",
+            (interaction.user.id,)
+        )
+
         if cursor.fetchone():
             return await interaction.response.send_message(
                 "Você já está no torneio!",
                 ephemeral=True
             )
 
-        cursor.execute("INSERT INTO participantes (user_id) VALUES (?)", (interaction.user.id,))
+        cursor.execute(
+            "INSERT INTO participantes (user_id) VALUES (?)",
+            (interaction.user.id,)
+        )
         conn.commit()
 
         await interaction.response.send_message(
@@ -109,10 +117,8 @@ async def abrir_torneio(ctx, data: str, premiacao: str):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def fechar_torneio(ctx):
-
     cursor.execute("UPDATE torneio SET ativo = 0 WHERE id = 1")
     conn.commit()
-
     await ctx.send("🔒 Inscrições encerradas.")
 
 @bot.command()
