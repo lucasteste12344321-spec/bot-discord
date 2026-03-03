@@ -57,21 +57,26 @@ CREATE TABLE IF NOT EXISTS admins (
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS torneio (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
     ativo INTEGER DEFAULT 0
 )
 """)
 
-cursor.execute("INSERT OR IGNORE INTO torneio (rowid, ativo) VALUES (1, 0)")
-conn.commit()
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS inscritos (
+    user_id INTEGER PRIMARY KEY
+)
+""")
 
-inscritos = []
+cursor.execute("INSERT OR IGNORE INTO torneio (id, ativo) VALUES (1, 0)")
+conn.commit()
 
 # ================= FUNÇÕES =================
 
 def is_admin(user_id):
     if user_id == OWNER_ID:
         return True
-    cursor.execute("SELECT * FROM admins WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT 1 FROM admins WHERE user_id = ?", (user_id,))
     return cursor.fetchone() is not None
 
 def registrar_usuario(user_id):
@@ -114,32 +119,29 @@ async def ajuda(ctx):
 
 @bot.command()
 async def personagens(ctx):
-    lista = "\n".join(PERSONAGENS)
-    embed = discord.Embed(title="🎭 Personagens Disponíveis", description=lista, color=0x00ff00)
+    embed = discord.Embed(
+        title="🎭 Personagens Disponíveis",
+        description="\n".join(PERSONAGENS),
+        color=0x00ff00
+    )
     await ctx.send(embed=embed)
 
 @bot.command()
 async def setpersonagem(ctx, *, nome):
-    nome_formatado = nome.lower()
-    personagem_encontrado = None
+    nome_lower = nome.lower()
+    personagem_valido = next((p for p in PERSONAGENS if p.lower() == nome_lower), None)
 
-    for p in PERSONAGENS:
-        if nome_formatado == p.lower():
-            personagem_encontrado = p
-            break
-
-    if not personagem_encontrado:
-        lista = "\n".join(PERSONAGENS)
-        return await ctx.send(f"❌ Personagem inválido.\n\nOpções disponíveis:\n{lista}")
+    if not personagem_valido:
+        return await ctx.send("❌ Personagem inválido. Use !personagens")
 
     registrar_usuario(ctx.author.id)
     cursor.execute(
         "UPDATE jogadores SET personagem = ? WHERE user_id = ?",
-        (personagem_encontrado, ctx.author.id)
+        (personagem_valido, ctx.author.id)
     )
     conn.commit()
 
-    await ctx.send(f"✅ Personagem definido como **{personagem_encontrado}**.")
+    await ctx.send(f"✅ Personagem definido como **{personagem_valido}**.")
 
 # ================= PERFIL =================
 
@@ -178,7 +180,7 @@ async def ranking(ctx):
         user = await bot.fetch_user(user_id)
         texto += f"{i}. {user.name} - {vitorias} vitórias\n"
 
-    await ctx.send(f"🏆 Ranking:\n\n{texto}")
+    await ctx.send(f"🏆 Ranking:\n\n{texto or 'Sem dados ainda.'}")
 
 # ================= STAFF =================
 
@@ -227,9 +229,8 @@ async def abrirtorneio(ctx):
     if not is_admin(ctx.author.id):
         return await ctx.send("Sem permissão.")
 
-    global inscritos
-    inscritos = []
-    cursor.execute("UPDATE torneio SET ativo = 1 WHERE rowid = 1")
+    cursor.execute("UPDATE torneio SET ativo = 1 WHERE id = 1")
+    cursor.execute("DELETE FROM inscritos")
     conn.commit()
     await ctx.send("🔥 Torneio aberto! Use !entrar")
 
@@ -238,28 +239,34 @@ async def fechartorneio(ctx):
     if not is_admin(ctx.author.id):
         return await ctx.send("Sem permissão.")
 
-    cursor.execute("UPDATE torneio SET ativo = 0 WHERE rowid = 1")
+    cursor.execute("UPDATE torneio SET ativo = 0 WHERE id = 1")
     conn.commit()
     await ctx.send("❌ Inscrições encerradas.")
 
 @bot.command()
 async def entrar(ctx):
-    cursor.execute("SELECT ativo FROM torneio WHERE rowid = 1")
+    cursor.execute("SELECT ativo FROM torneio WHERE id = 1")
     ativo = cursor.fetchone()[0]
 
     if not ativo:
         return await ctx.send("Nenhum torneio aberto.")
 
-    if ctx.author.id in inscritos:
+    cursor.execute("SELECT 1 FROM inscritos WHERE user_id = ?", (ctx.author.id,))
+    if cursor.fetchone():
         return await ctx.send("Você já está inscrito.")
 
-    inscritos.append(ctx.author.id)
+    cursor.execute("INSERT INTO inscritos (user_id) VALUES (?)", (ctx.author.id,))
+    conn.commit()
+
     await ctx.send("✅ Inscrição confirmada!")
 
 @bot.command()
 async def sortear(ctx):
     if not is_admin(ctx.author.id):
         return await ctx.send("Sem permissão.")
+
+    cursor.execute("SELECT user_id FROM inscritos")
+    inscritos = [row[0] for row in cursor.fetchall()]
 
     if len(inscritos) < 2:
         return await ctx.send("Participantes insuficientes.")
