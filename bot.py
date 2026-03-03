@@ -3,6 +3,10 @@ from discord.ext import commands
 import sqlite3
 import random
 import os
+
+# ================= CONFIG =================
+
+OWNER_ID = 1224163183426670722
 TOKEN = os.getenv("TOKEN")
 
 intents = discord.Intents.default()
@@ -11,10 +15,29 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-conn = sqlite3.connect("torneio.db")
-cursor = conn.cursor()
+# ================= PERSONAGENS =================
+
+PERSONAGENS = [
+    "Honored One",
+    "Vessel",
+    "Restless Gambler",
+    "Ten Shadows",
+    "Mahoraga",
+    "Perfection",
+    "Blood Manipulator",
+    "Switcher",
+    "Defense Attorney",
+    "Cursed Partners",
+    "Puppet Master",
+    "Head of the Hei",
+    "Salaryman",
+    "Lucky Coward"
+]
 
 # ================= BANCO =================
+
+conn = sqlite3.connect("torneio.db")
+cursor = conn.cursor()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS jogadores (
@@ -43,15 +66,80 @@ conn.commit()
 
 inscritos = []
 
-# ================= FUNÇÕES AUXILIARES =================
+# ================= FUNÇÕES =================
 
 def is_admin(user_id):
+    if user_id == OWNER_ID:
+        return True
     cursor.execute("SELECT * FROM admins WHERE user_id = ?", (user_id,))
     return cursor.fetchone() is not None
 
 def registrar_usuario(user_id):
     cursor.execute("INSERT OR IGNORE INTO jogadores (user_id) VALUES (?)", (user_id,))
     conn.commit()
+
+# ================= AJUDA =================
+
+@bot.command()
+async def ajuda(ctx):
+    embed = discord.Embed(title="📖 Comandos do Bot", color=0x00ff00)
+
+    embed.add_field(
+        name="👤 Perfil",
+        value="!perfil\n!setpersonagem Nome\n!setestilo Texto\n!personagens",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🏆 Ranking",
+        value="!ranking",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎮 Torneio",
+        value="!abrirtorneio\n!entrar\n!fechartorneio\n!sortear",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🔐 Staff",
+        value="!addadmin @usuario\n!removeadmin @usuario\n!addvitoria @usuario\n!setnivel @usuario número",
+        inline=False
+    )
+
+    await ctx.send(embed=embed)
+
+# ================= PERSONAGENS =================
+
+@bot.command()
+async def personagens(ctx):
+    lista = "\n".join(PERSONAGENS)
+    embed = discord.Embed(title="🎭 Personagens Disponíveis", description=lista, color=0x00ff00)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def setpersonagem(ctx, *, nome):
+    nome_formatado = nome.lower()
+    personagem_encontrado = None
+
+    for p in PERSONAGENS:
+        if nome_formatado == p.lower():
+            personagem_encontrado = p
+            break
+
+    if not personagem_encontrado:
+        lista = "\n".join(PERSONAGENS)
+        return await ctx.send(f"❌ Personagem inválido.\n\nOpções disponíveis:\n{lista}")
+
+    registrar_usuario(ctx.author.id)
+    cursor.execute(
+        "UPDATE jogadores SET personagem = ? WHERE user_id = ?",
+        (personagem_encontrado, ctx.author.id)
+    )
+    conn.commit()
+
+    await ctx.send(f"✅ Personagem definido como **{personagem_encontrado}**.")
 
 # ================= PERFIL =================
 
@@ -72,18 +160,11 @@ async def perfil(ctx, membro: discord.Member = None):
     await ctx.send(embed=embed)
 
 @bot.command()
-async def setpersonagem(ctx, *, nome):
-    registrar_usuario(ctx.author.id)
-    cursor.execute("UPDATE jogadores SET personagem = ? WHERE user_id = ?", (nome, ctx.author.id))
-    conn.commit()
-    await ctx.send("Personagem atualizado.")
-
-@bot.command()
 async def setestilo(ctx, *, estilo):
     registrar_usuario(ctx.author.id)
     cursor.execute("UPDATE jogadores SET estilo = ? WHERE user_id = ?", (estilo, ctx.author.id))
     conn.commit()
-    await ctx.send("Estilo atualizado.")
+    await ctx.send("✅ Estilo atualizado.")
 
 # ================= RANKING =================
 
@@ -108,7 +189,7 @@ async def addadmin(ctx, membro: discord.Member):
 
     cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (membro.id,))
     conn.commit()
-    await ctx.send("Admin adicionado.")
+    await ctx.send("✅ Admin adicionado.")
 
 @bot.command()
 async def removeadmin(ctx, membro: discord.Member):
@@ -117,7 +198,7 @@ async def removeadmin(ctx, membro: discord.Member):
 
     cursor.execute("DELETE FROM admins WHERE user_id = ?", (membro.id,))
     conn.commit()
-    await ctx.send("Admin removido.")
+    await ctx.send("✅ Admin removido.")
 
 @bot.command()
 async def addvitoria(ctx, membro: discord.Member):
@@ -127,7 +208,7 @@ async def addvitoria(ctx, membro: discord.Member):
     registrar_usuario(membro.id)
     cursor.execute("UPDATE jogadores SET vitorias = vitorias + 1 WHERE user_id = ?", (membro.id,))
     conn.commit()
-    await ctx.send("Vitória adicionada.")
+    await ctx.send("🏆 Vitória adicionada.")
 
 @bot.command()
 async def setnivel(ctx, membro: discord.Member, nivel: int):
@@ -137,7 +218,7 @@ async def setnivel(ctx, membro: discord.Member, nivel: int):
     registrar_usuario(membro.id)
     cursor.execute("UPDATE jogadores SET nivel = ? WHERE user_id = ?", (nivel, membro.id))
     conn.commit()
-    await ctx.send("Nível atualizado.")
+    await ctx.send("⭐ Nível atualizado.")
 
 # ================= TORNEIO =================
 
@@ -150,7 +231,7 @@ async def abrirtorneio(ctx):
     inscritos = []
     cursor.execute("UPDATE torneio SET ativo = 1 WHERE rowid = 1")
     conn.commit()
-    await ctx.send("Torneio aberto! Use !entrar")
+    await ctx.send("🔥 Torneio aberto! Use !entrar")
 
 @bot.command()
 async def fechartorneio(ctx):
@@ -159,7 +240,7 @@ async def fechartorneio(ctx):
 
     cursor.execute("UPDATE torneio SET ativo = 0 WHERE rowid = 1")
     conn.commit()
-    await ctx.send("Inscrições encerradas.")
+    await ctx.send("❌ Inscrições encerradas.")
 
 @bot.command()
 async def entrar(ctx):
@@ -173,7 +254,7 @@ async def entrar(ctx):
         return await ctx.send("Você já está inscrito.")
 
     inscritos.append(ctx.author.id)
-    await ctx.send("Inscrição confirmada!")
+    await ctx.send("✅ Inscrição confirmada!")
 
 @bot.command()
 async def sortear(ctx):
@@ -204,4 +285,3 @@ async def on_ready():
     print(f"Bot online como {bot.user}")
 
 bot.run(TOKEN)
-
