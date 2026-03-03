@@ -1,11 +1,9 @@
 import discord
 from discord.ext import commands
-from discord import ui
 import sqlite3
 import random
-import os
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = "SEU_TOKEN_AQUI"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -16,166 +14,193 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 conn = sqlite3.connect("torneio.db")
 cursor = conn.cursor()
 
+# ================= BANCO =================
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS jogadores (
+    user_id INTEGER PRIMARY KEY,
+    personagem TEXT DEFAULT "Não definido",
+    estilo TEXT DEFAULT "Não definido",
+    vitorias INTEGER DEFAULT 0,
+    nivel INTEGER DEFAULT 0
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS admins (
+    user_id INTEGER PRIMARY KEY
+)
+""")
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS torneio (
-    id INTEGER PRIMARY KEY,
-    ativo INTEGER,
-    data TEXT,
-    premiacao TEXT
+    ativo INTEGER DEFAULT 0
 )
 """)
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS participantes (
-    user_id INTEGER
-)
-""")
-
+cursor.execute("INSERT OR IGNORE INTO torneio (rowid, ativo) VALUES (1, 0)")
 conn.commit()
 
-class ViewTorneio(ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+inscritos = []
 
-    @ui.button(
-        label="Entrar no Torneio",
-        style=discord.ButtonStyle.green,
-        emoji="⚔️",
-        custom_id="btn_entrar_torneio"
-    )
-    async def entrar(self, interaction: discord.Interaction, button: ui.Button):
+# ================= FUNÇÕES AUXILIARES =================
 
-        cursor.execute("SELECT ativo FROM torneio WHERE id = 1")
-        resultado = cursor.fetchone()
+def is_admin(user_id):
+    cursor.execute("SELECT * FROM admins WHERE user_id = ?", (user_id,))
+    return cursor.fetchone() is not None
 
-        if not resultado or resultado[0] == 0:
-            return await interaction.response.send_message(
-                "❌ Não há torneio aberto!",
-                ephemeral=True
-            )
-
-        cursor.execute(
-            "SELECT user_id FROM participantes WHERE user_id = ?",
-            (interaction.user.id,)
-        )
-
-        if cursor.fetchone():
-            return await interaction.response.send_message(
-                "Você já está no torneio!",
-                ephemeral=True
-            )
-
-        cursor.execute(
-            "INSERT INTO participantes (user_id) VALUES (?)",
-            (interaction.user.id,)
-        )
-        conn.commit()
-
-        await interaction.response.send_message(
-            "✅ Você entrou no torneio!",
-            ephemeral=True
-        )
-
-@bot.event
-async def on_ready():
-    bot.add_view(ViewTorneio())
-    print("Bot online como", bot.user)
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def abrir_torneio(ctx, data: str, premiacao: str):
-
-    cursor.execute("SELECT ativo FROM torneio WHERE id = 1")
-    resultado = cursor.fetchone()
-
-    if resultado and resultado[0] == 1:
-        embed = discord.Embed(
-            title="⚠️ Torneio já em andamento!",
-            description="Já existe um torneio ativo no momento.",
-            color=discord.Color.red()
-        )
-        return await ctx.send(embed=embed)
-
-    cursor.execute("DELETE FROM torneio")
-    cursor.execute("DELETE FROM participantes")
-
-    cursor.execute(
-        "INSERT INTO torneio (id, ativo, data, premiacao) VALUES (1, 1, ?, ?)",
-        (data, premiacao)
-    )
-
+def registrar_usuario(user_id):
+    cursor.execute("INSERT OR IGNORE INTO jogadores (user_id) VALUES (?)", (user_id,))
     conn.commit()
 
-    embed = discord.Embed(
-        title="🏆 TORNEIO OFICIAL ABERTO!",
-        description=f"📅 Data: {data}\n🏆 Premiação: {premiacao}\n\nClique no botão para participar!",
-        color=discord.Color.green()
-    )
-
-    await ctx.send("@everyone O torneio começou!", embed=embed, view=ViewTorneio())
+# ================= PERFIL =================
 
 @bot.command()
-@commands.has_permissions(administrator=True)
-async def fechar_torneio(ctx):
-    cursor.execute("UPDATE torneio SET ativo = 0 WHERE id = 1")
-    conn.commit()
-    await ctx.send("🔒 Inscrições encerradas.")
+async def perfil(ctx, membro: discord.Member = None):
+    membro = membro or ctx.author
+    registrar_usuario(membro.id)
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def anunciar(ctx):
+    cursor.execute("SELECT * FROM jogadores WHERE user_id = ?", (membro.id,))
+    dados = cursor.fetchone()
 
-    cursor.execute("SELECT data, premiacao FROM torneio WHERE id = 1 AND ativo = 1")
-    resultado = cursor.fetchone()
-
-    if not resultado:
-        return await ctx.send("Não há torneio ativo.")
-
-    data, premiacao = resultado
-
-    embed = discord.Embed(
-        title="📢 TORNEIO OFICIAL",
-        description=(
-            f"📅 Data: {data}\n"
-            f"🏆 Premiação: {premiacao}\n\n"
-            "📜 REGRAS:\n"
-            "1. Melhor de 3.\n"
-            "2. Proibido spam.\n"
-            "3. Respeito obrigatório.\n"
-            "4. Decisão da staff é final."
-        ),
-        color=discord.Color.blurple()
-    )
+    embed = discord.Embed(title=f"Perfil de {membro.name}", color=0x00ff00)
+    embed.add_field(name="Personagem", value=dados[1], inline=False)
+    embed.add_field(name="Estilo", value=dados[2], inline=False)
+    embed.add_field(name="Vitórias", value=dados[3], inline=False)
+    embed.add_field(name="Nível", value=dados[4], inline=False)
 
     await ctx.send(embed=embed)
 
 @bot.command()
-@commands.has_permissions(administrator=True)
+async def setpersonagem(ctx, *, nome):
+    registrar_usuario(ctx.author.id)
+    cursor.execute("UPDATE jogadores SET personagem = ? WHERE user_id = ?", (nome, ctx.author.id))
+    conn.commit()
+    await ctx.send("Personagem atualizado.")
+
+@bot.command()
+async def setestilo(ctx, *, estilo):
+    registrar_usuario(ctx.author.id)
+    cursor.execute("UPDATE jogadores SET estilo = ? WHERE user_id = ?", (estilo, ctx.author.id))
+    conn.commit()
+    await ctx.send("Estilo atualizado.")
+
+# ================= RANKING =================
+
+@bot.command()
+async def ranking(ctx):
+    cursor.execute("SELECT user_id, vitorias FROM jogadores ORDER BY vitorias DESC LIMIT 10")
+    ranking = cursor.fetchall()
+
+    texto = ""
+    for i, (user_id, vitorias) in enumerate(ranking, 1):
+        user = await bot.fetch_user(user_id)
+        texto += f"{i}. {user.name} - {vitorias} vitórias\n"
+
+    await ctx.send(f"🏆 Ranking:\n\n{texto}")
+
+# ================= STAFF =================
+
+@bot.command()
+async def addadmin(ctx, membro: discord.Member):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("Sem permissão.")
+
+    cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (membro.id,))
+    conn.commit()
+    await ctx.send("Admin adicionado.")
+
+@bot.command()
+async def removeadmin(ctx, membro: discord.Member):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("Sem permissão.")
+
+    cursor.execute("DELETE FROM admins WHERE user_id = ?", (membro.id,))
+    conn.commit()
+    await ctx.send("Admin removido.")
+
+@bot.command()
+async def addvitoria(ctx, membro: discord.Member):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("Sem permissão.")
+
+    registrar_usuario(membro.id)
+    cursor.execute("UPDATE jogadores SET vitorias = vitorias + 1 WHERE user_id = ?", (membro.id,))
+    conn.commit()
+    await ctx.send("Vitória adicionada.")
+
+@bot.command()
+async def setnivel(ctx, membro: discord.Member, nivel: int):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("Sem permissão.")
+
+    registrar_usuario(membro.id)
+    cursor.execute("UPDATE jogadores SET nivel = ? WHERE user_id = ?", (nivel, membro.id))
+    conn.commit()
+    await ctx.send("Nível atualizado.")
+
+# ================= TORNEIO =================
+
+@bot.command()
+async def abrirtorneio(ctx):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("Sem permissão.")
+
+    global inscritos
+    inscritos = []
+    cursor.execute("UPDATE torneio SET ativo = 1 WHERE rowid = 1")
+    conn.commit()
+    await ctx.send("Torneio aberto! Use !entrar")
+
+@bot.command()
+async def fechartorneio(ctx):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("Sem permissão.")
+
+    cursor.execute("UPDATE torneio SET ativo = 0 WHERE rowid = 1")
+    conn.commit()
+    await ctx.send("Inscrições encerradas.")
+
+@bot.command()
+async def entrar(ctx):
+    cursor.execute("SELECT ativo FROM torneio WHERE rowid = 1")
+    ativo = cursor.fetchone()[0]
+
+    if not ativo:
+        return await ctx.send("Nenhum torneio aberto.")
+
+    if ctx.author.id in inscritos:
+        return await ctx.send("Você já está inscrito.")
+
+    inscritos.append(ctx.author.id)
+    await ctx.send("Inscrição confirmada!")
+
+@bot.command()
 async def sortear(ctx):
+    if not is_admin(ctx.author.id):
+        return await ctx.send("Sem permissão.")
 
-    cursor.execute("SELECT user_id FROM participantes")
-    jogadores = cursor.fetchall()
+    if len(inscritos) < 2:
+        return await ctx.send("Participantes insuficientes.")
 
-    if len(jogadores) < 2:
-        return await ctx.send("Precisa de pelo menos 2 participantes.")
+    random.shuffle(inscritos)
 
-    ids = [j[0] for j in jogadores]
-    random.shuffle(ids)
+    confrontos = ""
+    for i in range(0, len(inscritos), 2):
+        if i + 1 < len(inscritos):
+            p1 = await bot.fetch_user(inscritos[i])
+            p2 = await bot.fetch_user(inscritos[i+1])
+            confrontos += f"{p1.name} vs {p2.name}\n"
+        else:
+            p1 = await bot.fetch_user(inscritos[i])
+            confrontos += f"{p1.name} avança automaticamente\n"
 
-    confrontos = []
+    await ctx.send(f"🔥 Confrontos:\n\n{confrontos}")
 
-    while len(ids) >= 2:
-        p1 = ctx.guild.get_member(ids.pop())
-        p2 = ctx.guild.get_member(ids.pop())
+# ================= START =================
 
-        if p1 and p2:
-            confrontos.append(f"{p1.mention} vs {p2.mention}")
-
-    if ids:
-        restante = ctx.guild.get_member(ids.pop())
-        if restante:
-            confrontos.append(f"{restante.mention} avançou por WO!")
-
-    await ctx.send("🎲 **Confrontos:**\n" + "\n".join(confrontos))
+@bot.event
+async def on_ready():
+    print(f"Bot online como {bot.user}")
 
 bot.run(TOKEN)
