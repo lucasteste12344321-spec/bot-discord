@@ -22,7 +22,6 @@ PERSONAGENS = [
     "Vessel",
     "Restless Gambler",
     "Ten Shadows",
-    "Mahoraga",
     "Perfection",
     "Blood Manipulator",
     "Switcher",
@@ -31,7 +30,10 @@ PERSONAGENS = [
     "Puppet Master",
     "Head of the Hei",
     "Salaryman",
-    "Lucky Coward"
+    "Lucky Coward",
+    "locust Guy",
+    "Star Rage",
+    "Aspiring Mangaká"
 ]
 
 # ================= BANCO =================
@@ -292,3 +294,4 @@ async def on_ready():
     print(f"Bot online como {bot.user}")
 
 bot.run(TOKEN)
+
