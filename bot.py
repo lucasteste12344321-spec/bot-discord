@@ -85,17 +85,17 @@ def registrar_usuario(user_id):
     cursor.execute("INSERT OR IGNORE INTO jogadores (user_id) VALUES (?)", (user_id,))
     conn.commit()
 
+def contar_inscritos():
+    cursor.execute("SELECT COUNT(*) FROM inscritos")
+    return cursor.fetchone()[0]
+
 # ================= BOTÃO =================
 
 class EntrarTorneioView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(
-        label="Entrar no Torneio",
-        style=discord.ButtonStyle.green,
-        emoji="🔥"
-    )
+    @discord.ui.button(label="Entrar no Torneio", style=discord.ButtonStyle.green, emoji="🔥")
     async def entrar(self, interaction: discord.Interaction, button: discord.ui.Button):
 
         cursor.execute("SELECT ativo FROM torneio WHERE id = 1")
@@ -117,7 +117,22 @@ class EntrarTorneioView(discord.ui.View):
         cursor.execute("INSERT INTO inscritos (user_id) VALUES (?)", (interaction.user.id,))
         conn.commit()
 
-        await interaction.response.send_message(
+        total = contar_inscritos()
+
+        embed = discord.Embed(
+            title="🔥 TORNEIO ABERTO!",
+            description=(
+                "Clique no botão abaixo para participar.\n\n"
+                f"👥 **Participantes atuais:** {total}"
+            ),
+            color=0xed4245
+        )
+
+        embed.set_footer(text="Prove que você é o mais forte.")
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+        await interaction.followup.send(
             "✅ Você entrou no torneio!",
             ephemeral=True
         )
@@ -154,119 +169,6 @@ async def ajuda(ctx):
 
     await ctx.send(embed=embed)
 
-# ================= PERSONAGENS =================
-
-@bot.command()
-async def personagens(ctx):
-    embed = discord.Embed(
-        title="🎭 Personagens Disponíveis",
-        description="\n".join(PERSONAGENS),
-        color=0x5865f2
-    )
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def setpersonagem(ctx, *, nome):
-    nome_lower = nome.lower()
-    personagem_valido = next((p for p in PERSONAGENS if p.lower() == nome_lower), None)
-
-    if not personagem_valido:
-        return await ctx.send("❌ Personagem inválido. Use !personagens")
-
-    registrar_usuario(ctx.author.id)
-    cursor.execute(
-        "UPDATE jogadores SET personagem = ? WHERE user_id = ?",
-        (personagem_valido, ctx.author.id)
-    )
-    conn.commit()
-
-    await ctx.send(f"✅ Personagem definido como **{personagem_valido}**.")
-
-# ================= PERFIL =================
-
-@bot.command()
-async def perfil(ctx, membro: discord.Member = None):
-    membro = membro or ctx.author
-    registrar_usuario(membro.id)
-
-    cursor.execute("SELECT * FROM jogadores WHERE user_id = ?", (membro.id,))
-    dados = cursor.fetchone()
-
-    embed = discord.Embed(title=f"👤 Perfil de {membro.name}", color=0x57f287)
-    embed.add_field(name="🎭 Personagem", value=dados[1], inline=False)
-    embed.add_field(name="📝 Estilo", value=dados[2], inline=False)
-    embed.add_field(name="🏆 Vitórias", value=dados[3], inline=True)
-    embed.add_field(name="⭐ Nível", value=dados[4], inline=True)
-
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def setestilo(ctx, *, estilo):
-    registrar_usuario(ctx.author.id)
-    cursor.execute("UPDATE jogadores SET estilo = ? WHERE user_id = ?", (estilo, ctx.author.id))
-    conn.commit()
-    await ctx.send("✅ Estilo atualizado.")
-
-# ================= RANKING =================
-
-@bot.command()
-async def ranking(ctx):
-    cursor.execute("SELECT user_id, vitorias FROM jogadores ORDER BY vitorias DESC LIMIT 10")
-    ranking = cursor.fetchall()
-
-    texto = ""
-    for i, (user_id, vitorias) in enumerate(ranking, 1):
-        user = await bot.fetch_user(user_id)
-        texto += f"**{i}.** {user.name} — {vitorias} vitórias\n"
-
-    embed = discord.Embed(
-        title="🏆 Ranking Global",
-        description=texto or "Sem dados ainda.",
-        color=0xf1c40f
-    )
-
-    await ctx.send(embed=embed)
-
-# ================= STAFF =================
-
-@bot.command()
-async def addadmin(ctx, membro: discord.Member):
-    if not is_admin(ctx.author.id):
-        return await ctx.send("Sem permissão.")
-
-    cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (membro.id,))
-    conn.commit()
-    await ctx.send("✅ Admin adicionado.")
-
-@bot.command()
-async def removeadmin(ctx, membro: discord.Member):
-    if not is_admin(ctx.author.id):
-        return await ctx.send("Sem permissão.")
-
-    cursor.execute("DELETE FROM admins WHERE user_id = ?", (membro.id,))
-    conn.commit()
-    await ctx.send("✅ Admin removido.")
-
-@bot.command()
-async def addvitoria(ctx, membro: discord.Member):
-    if not is_admin(ctx.author.id):
-        return await ctx.send("Sem permissão.")
-
-    registrar_usuario(membro.id)
-    cursor.execute("UPDATE jogadores SET vitorias = vitorias + 1 WHERE user_id = ?", (membro.id,))
-    conn.commit()
-    await ctx.send("🏆 Vitória adicionada.")
-
-@bot.command()
-async def setnivel(ctx, membro: discord.Member, nivel: int):
-    if not is_admin(ctx.author.id):
-        return await ctx.send("Sem permissão.")
-
-    registrar_usuario(membro.id)
-    cursor.execute("UPDATE jogadores SET nivel = ? WHERE user_id = ?", (nivel, membro.id))
-    conn.commit()
-    await ctx.send("⭐ Nível atualizado.")
-
 # ================= TORNEIO =================
 
 @bot.command()
@@ -278,9 +180,14 @@ async def abrirtorneio(ctx):
     cursor.execute("DELETE FROM inscritos")
     conn.commit()
 
+    total = contar_inscritos()
+
     embed = discord.Embed(
         title="🔥 TORNEIO ABERTO!",
-        description="Clique no botão abaixo para participar e prove que você é o mais forte.",
+        description=(
+            "Clique no botão abaixo para participar.\n\n"
+            f"👥 **Participantes atuais:** {total}"
+        ),
         color=0xed4245
     )
 
@@ -333,6 +240,7 @@ async def sortear(ctx):
 
 @bot.event
 async def on_ready():
+    bot.add_view(EntrarTorneioView())  # importante pra Railway
     print(f"Bot online como {bot.user}")
 
 bot.run(TOKEN)
