@@ -85,9 +85,9 @@ def registrar_usuario(user_id):
     cursor.execute("INSERT OR IGNORE INTO jogadores (user_id) VALUES (?)", (user_id,))
     conn.commit()
 
-def contar_inscritos():
-    cursor.execute("SELECT COUNT(*) FROM inscritos")
-    return cursor.fetchone()[0]
+def listar_inscritos():
+    cursor.execute("SELECT user_id FROM inscritos")
+    return [row[0] for row in cursor.fetchall()]
 
 # ================= BOTÃO =================
 
@@ -117,18 +117,23 @@ class EntrarTorneioView(discord.ui.View):
         cursor.execute("INSERT INTO inscritos (user_id) VALUES (?)", (interaction.user.id,))
         conn.commit()
 
-        total = contar_inscritos()
+        inscritos_ids = listar_inscritos()
+        total = len(inscritos_ids)
+
+        nomes = []
+        for user_id in inscritos_ids[:20]:
+            user = await interaction.client.fetch_user(user_id)
+            nomes.append(user.name)
+
+        lista_formatada = "\n".join(nomes) if nomes else "Nenhum ainda."
 
         embed = discord.Embed(
             title="🔥 TORNEIO ABERTO!",
-            description=(
-                "Clique no botão abaixo para participar.\n\n"
-                f"👥 **Participantes atuais:** {total}"
-            ),
+            description=f"👥 **Participantes ({total}):**\n\n{lista_formatada}",
             color=0xed4245
         )
 
-        embed.set_footer(text="Prove que você é o mais forte.")
+        embed.set_footer(text="Clique no botão para participar.")
 
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -149,22 +154,45 @@ async def ajuda(ctx):
         inline=False
     )
 
-    embed.add_field(
-        name="🏆 Ranking",
-        value="!ranking",
-        inline=False
-    )
+    embed.add_field(name="🏆 Ranking", value="!ranking", inline=False)
+    embed.add_field(name="🎮 Torneio", value="!abrirtorneio\n!fechartorneio\n!sortear", inline=False)
 
-    embed.add_field(
-        name="🎮 Torneio",
-        value="!abrirtorneio\n!fechartorneio\n!sortear",
-        inline=False
-    )
+    await ctx.send(embed=embed)
 
-    embed.add_field(
-        name="🔐 Staff",
-        value="!addadmin @usuario\n!removeadmin @usuario\n!addvitoria @usuario\n!setnivel @usuario número",
-        inline=False
+# ================= PERFIL =================
+
+@bot.command()
+async def perfil(ctx, membro: discord.Member = None):
+    membro = membro or ctx.author
+    registrar_usuario(membro.id)
+
+    cursor.execute("SELECT * FROM jogadores WHERE user_id = ?", (membro.id,))
+    dados = cursor.fetchone()
+
+    embed = discord.Embed(title=f"👤 Perfil de {membro.name}", color=0x57f287)
+    embed.add_field(name="🎭 Personagem", value=dados[1], inline=False)
+    embed.add_field(name="📝 Estilo", value=dados[2], inline=False)
+    embed.add_field(name="🏆 Vitórias", value=dados[3], inline=True)
+    embed.add_field(name="⭐ Nível", value=dados[4], inline=True)
+
+    await ctx.send(embed=embed)
+
+# ================= RANKING =================
+
+@bot.command()
+async def ranking(ctx):
+    cursor.execute("SELECT user_id, vitorias FROM jogadores ORDER BY vitorias DESC LIMIT 10")
+    ranking = cursor.fetchall()
+
+    texto = ""
+    for i, (user_id, vitorias) in enumerate(ranking, 1):
+        user = await bot.fetch_user(user_id)
+        texto += f"**{i}.** {user.name} — {vitorias} vitórias\n"
+
+    embed = discord.Embed(
+        title="🏆 Ranking Global",
+        description=texto or "Sem dados ainda.",
+        color=0xf1c40f
     )
 
     await ctx.send(embed=embed)
@@ -180,18 +208,13 @@ async def abrirtorneio(ctx):
     cursor.execute("DELETE FROM inscritos")
     conn.commit()
 
-    total = contar_inscritos()
-
     embed = discord.Embed(
         title="🔥 TORNEIO ABERTO!",
-        description=(
-            "Clique no botão abaixo para participar.\n\n"
-            f"👥 **Participantes atuais:** {total}"
-        ),
+        description="👥 **Participantes (0):**\n\nNenhum ainda.",
         color=0xed4245
     )
 
-    embed.set_footer(text="As inscrições serão fechadas pelo administrador.")
+    embed.set_footer(text="Clique no botão para participar.")
 
     view = EntrarTorneioView()
     await ctx.send(embed=embed, view=view)
@@ -210,8 +233,7 @@ async def sortear(ctx):
     if not is_admin(ctx.author.id):
         return await ctx.send("Sem permissão.")
 
-    cursor.execute("SELECT user_id FROM inscritos")
-    inscritos = [row[0] for row in cursor.fetchall()]
+    inscritos = listar_inscritos()
 
     if len(inscritos) < 2:
         return await ctx.send("Participantes insuficientes.")
@@ -240,7 +262,7 @@ async def sortear(ctx):
 
 @bot.event
 async def on_ready():
-    bot.add_view(EntrarTorneioView())  # importante pra Railway
+    bot.add_view(EntrarTorneioView())
     print(f"Bot online como {bot.user}")
 
 bot.run(TOKEN)
