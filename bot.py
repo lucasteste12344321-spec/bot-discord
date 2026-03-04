@@ -31,7 +31,7 @@ PERSONAGENS = [
     "Head of the Hei",
     "Salaryman",
     "Lucky Coward",
-    "locust Guy",
+    "Locust Guy",
     "Star Rage",
     "Aspiring Mangaká"
 ]
@@ -85,11 +85,48 @@ def registrar_usuario(user_id):
     cursor.execute("INSERT OR IGNORE INTO jogadores (user_id) VALUES (?)", (user_id,))
     conn.commit()
 
+# ================= BOTÃO =================
+
+class EntrarTorneioView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Entrar no Torneio",
+        style=discord.ButtonStyle.green,
+        emoji="🔥"
+    )
+    async def entrar(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        cursor.execute("SELECT ativo FROM torneio WHERE id = 1")
+        ativo = cursor.fetchone()[0]
+
+        if not ativo:
+            return await interaction.response.send_message(
+                "❌ Não há torneio aberto.",
+                ephemeral=True
+            )
+
+        cursor.execute("SELECT 1 FROM inscritos WHERE user_id = ?", (interaction.user.id,))
+        if cursor.fetchone():
+            return await interaction.response.send_message(
+                "⚠️ Você já está inscrito.",
+                ephemeral=True
+            )
+
+        cursor.execute("INSERT INTO inscritos (user_id) VALUES (?)", (interaction.user.id,))
+        conn.commit()
+
+        await interaction.response.send_message(
+            "✅ Você entrou no torneio!",
+            ephemeral=True
+        )
+
 # ================= AJUDA =================
 
 @bot.command()
 async def ajuda(ctx):
-    embed = discord.Embed(title="📖 Comandos do Bot", color=0x00ff00)
+    embed = discord.Embed(title="📖 Comandos do Bot", color=0x2b2d31)
 
     embed.add_field(
         name="👤 Perfil",
@@ -105,7 +142,7 @@ async def ajuda(ctx):
 
     embed.add_field(
         name="🎮 Torneio",
-        value="!abrirtorneio\n!entrar\n!fechartorneio\n!sortear",
+        value="!abrirtorneio\n!fechartorneio\n!sortear",
         inline=False
     )
 
@@ -124,7 +161,7 @@ async def personagens(ctx):
     embed = discord.Embed(
         title="🎭 Personagens Disponíveis",
         description="\n".join(PERSONAGENS),
-        color=0x00ff00
+        color=0x5865f2
     )
     await ctx.send(embed=embed)
 
@@ -155,11 +192,11 @@ async def perfil(ctx, membro: discord.Member = None):
     cursor.execute("SELECT * FROM jogadores WHERE user_id = ?", (membro.id,))
     dados = cursor.fetchone()
 
-    embed = discord.Embed(title=f"Perfil de {membro.name}", color=0x00ff00)
-    embed.add_field(name="Personagem", value=dados[1], inline=False)
-    embed.add_field(name="Estilo", value=dados[2], inline=False)
-    embed.add_field(name="Vitórias", value=dados[3], inline=False)
-    embed.add_field(name="Nível", value=dados[4], inline=False)
+    embed = discord.Embed(title=f"👤 Perfil de {membro.name}", color=0x57f287)
+    embed.add_field(name="🎭 Personagem", value=dados[1], inline=False)
+    embed.add_field(name="📝 Estilo", value=dados[2], inline=False)
+    embed.add_field(name="🏆 Vitórias", value=dados[3], inline=True)
+    embed.add_field(name="⭐ Nível", value=dados[4], inline=True)
 
     await ctx.send(embed=embed)
 
@@ -180,9 +217,15 @@ async def ranking(ctx):
     texto = ""
     for i, (user_id, vitorias) in enumerate(ranking, 1):
         user = await bot.fetch_user(user_id)
-        texto += f"{i}. {user.name} - {vitorias} vitórias\n"
+        texto += f"**{i}.** {user.name} — {vitorias} vitórias\n"
 
-    await ctx.send(f"🏆 Ranking:\n\n{texto or 'Sem dados ainda.'}")
+    embed = discord.Embed(
+        title="🏆 Ranking Global",
+        description=texto or "Sem dados ainda.",
+        color=0xf1c40f
+    )
+
+    await ctx.send(embed=embed)
 
 # ================= STAFF =================
 
@@ -234,7 +277,17 @@ async def abrirtorneio(ctx):
     cursor.execute("UPDATE torneio SET ativo = 1 WHERE id = 1")
     cursor.execute("DELETE FROM inscritos")
     conn.commit()
-    await ctx.send("🔥 Torneio aberto! Use !entrar")
+
+    embed = discord.Embed(
+        title="🔥 TORNEIO ABERTO!",
+        description="Clique no botão abaixo para participar e prove que você é o mais forte.",
+        color=0xed4245
+    )
+
+    embed.set_footer(text="As inscrições serão fechadas pelo administrador.")
+
+    view = EntrarTorneioView()
+    await ctx.send(embed=embed, view=view)
 
 @bot.command()
 async def fechartorneio(ctx):
@@ -244,23 +297,6 @@ async def fechartorneio(ctx):
     cursor.execute("UPDATE torneio SET ativo = 0 WHERE id = 1")
     conn.commit()
     await ctx.send("❌ Inscrições encerradas.")
-
-@bot.command()
-async def entrar(ctx):
-    cursor.execute("SELECT ativo FROM torneio WHERE id = 1")
-    ativo = cursor.fetchone()[0]
-
-    if not ativo:
-        return await ctx.send("Nenhum torneio aberto.")
-
-    cursor.execute("SELECT 1 FROM inscritos WHERE user_id = ?", (ctx.author.id,))
-    if cursor.fetchone():
-        return await ctx.send("Você já está inscrito.")
-
-    cursor.execute("INSERT INTO inscritos (user_id) VALUES (?)", (ctx.author.id,))
-    conn.commit()
-
-    await ctx.send("✅ Inscrição confirmada!")
 
 @bot.command()
 async def sortear(ctx):
@@ -280,12 +316,18 @@ async def sortear(ctx):
         if i + 1 < len(inscritos):
             p1 = await bot.fetch_user(inscritos[i])
             p2 = await bot.fetch_user(inscritos[i+1])
-            confrontos += f"{p1.name} vs {p2.name}\n"
+            confrontos += f"⚔️ {p1.name} vs {p2.name}\n"
         else:
             p1 = await bot.fetch_user(inscritos[i])
-            confrontos += f"{p1.name} avança automaticamente\n"
+            confrontos += f"👑 {p1.name} avança automaticamente\n"
 
-    await ctx.send(f"🔥 Confrontos:\n\n{confrontos}")
+    embed = discord.Embed(
+        title="🔥 Confrontos do Torneio",
+        description=confrontos,
+        color=0xed4245
+    )
+
+    await ctx.send(embed=embed)
 
 # ================= START =================
 
@@ -294,4 +336,3 @@ async def on_ready():
     print(f"Bot online como {bot.user}")
 
 bot.run(TOKEN)
-
